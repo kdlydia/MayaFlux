@@ -5,5 +5,5 @@
     update = none
 [submodule "tests"]
 	path = tests
-	url = https://github.com/MayaFlux/mayaflux-tests.git
+	url = https://github.com/kdlydia/mayaflux-tests.git
 	branch = main
