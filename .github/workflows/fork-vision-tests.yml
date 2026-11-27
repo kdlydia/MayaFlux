@@ -1,0 +1,141 @@
+name: Fork vision tests
+
+# Fork only, never upstream. Runs the GPU vision tests on lavapipe, which
+# upstream CI cannot run without a GPU, and upstream's portable test jobs.
+# The three excluded vision tests also fail on main under lavapipe.
+
+on:
+  push:
+    branches: ["*-ci"]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  vision_lavapipe:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+      options: --privileged
+    name: "Vision tests on lavapipe (Fedora 44)"
+
+    steps:
+      - name: Enable copr
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf copr enable -y ranjithshegde/spirv-cross
+          dnf copr enable -y ranjithshegde/asio-standalone
+
+      - name: Install build dependencies and lavapipe
+        run: |
+          dnf install -y \
+            @development-tools \
+            llvm llvm-devel llvm-libs \
+            clang clang-devel \
+            cmake \
+            pkgconfig \
+            glm-devel \
+            eigen3-devel \
+            spirv-headers-devel \
+            spirv-cross-devel \
+            spirv-tools-devel \
+            vulkan-headers \
+            vulkan-loader \
+            vulkan-loader-devel \
+            vulkan-tools \
+            vulkan-validation-layers \
+            ffmpeg-free-devel \
+            assimp-devel \
+            alembic-devel \
+            stb-devel \
+            tbb-devel \
+            gtest-devel \
+            glslc \
+            libshaderc-devel \
+            hidapi-devel \
+            asio-standalone \
+            utf8proc-devel \
+            freetype-devel \
+            fontconfig-devel \
+            json-devel \
+            pugixml-devel \
+            ninja-build \
+            mold \
+            wayland-devel \
+            wayland-protocols-devel \
+            libxkbcommon-devel \
+            pipewire-devel \
+            alsa-lib-devel \
+            dbus-devel \
+            ccache \
+            git \
+            mesa-vulkan-drivers
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Compiler cache
+        uses: ./.github/actions/ccache
+        with:
+          platform: fedora
+
+      - name: Vulkan devices
+        run: vulkaninfo --summary || true
+
+      - name: Configure
+        run: cmake --preset linux-test
+
+      - name: Build
+        run: cmake --build --preset linux-test
+
+      - name: Vision tests
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --preset linux-test -R '^yantra/.*Vision|^kakshya/.*VisionProcessor' \
+            -E '^yantra/VisionAnalyzerTest\.AdvanceTrackingOnTheSecondFrameMatchesTheSynchronousResult$|^yantra/VisionExtractorTest\.MaskKeepsOnlyTheTargetLabelsSilhouette$|^yantra/VisionExecutorSelectLabelTest\.SelectLabelKeepsOnlyTheChosenComponentOpaque$' \
+            --no-tests=error -V 2>&1 | tee vision.log
+          grep -a '\[  SKIPPED \]' vision.log | sort -u || true
+          if grep -aq 'No usable Vulkan device' vision.log; then
+            echo "No usable Vulkan device"
+            exit 1
+          fi
+
+  test_arch:
+    uses: ./.github/workflows/build-linux-arch.yml
+    with:
+      version: "ci-${{ github.run_number }}"
+      clean_version: "0.0.0"
+      preset: linux-check
+      test_preset: linux-test
+      run_tests: true
+      create_distribution: false
+      artifact_name: ci-tests-arch
+      distribution_name: linux-arch
+      os_display_name: Arch Linux
+
+  test_macos:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      version: "ci-${{ github.run_number }}"
+      clean_version: "0.0.0"
+      preset: macos-check
+      test_preset: macos-test
+      run_tests: true
+      create_distribution: false
+
+  test_windows:
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      version: "ci-${{ github.run_number }}"
+      clean_version: "0.0.0"
+      preset: windows-check
+      test_preset: windows-check-test
+      run_tests: true
+      create_distribution: false
+      artifact_name: ci-tests-windows
+      distribution_name: windows-x64
+      os_display_name: Windows
